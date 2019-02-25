@@ -1,0 +1,315 @@
+CLASS z_cl_itab_to_excel implementation.
+method ADD_TABLE_TO_COLLECTION.
+  " добавим в коллекцию таблиц, для работы в книге Excel
+  mo_ref_table_collection->add_table(
+    EXPORTING
+      table_name = 'DATA'
+      table_type = mo_ref_table_collection->table_type_output
+      no_flush   = ' '
+    CHANGING
+      data_table = ct_outtab
+  ).
+endmethod.
+
+method FILL_OUTTAB.
+  DATA: lt_fcat     TYPE lvc_t_fcat
+      , wa_fcat     LIKE LINE OF lt_fcat
+      , wa_data     TYPE REF TO data
+      , lv_num_row  TYPE i
+      , lv_position TYPE i
+      , lv_value    TYPE string
+      .
+
+  FIELD-SYMBOLS: <fs_data>  TYPE STANDARD TABLE
+               , <fs_lined> TYPE any
+               , <fs_field> TYPE any
+               .
+
+  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+    EXPORTING
+      text       = 'Transferring data...'
+    EXCEPTIONS
+      OTHERS     = 0.
+
+  IF ir_data IS INITIAL.
+    RAISE not_got_reference_on_data.
+  ENDIF.
+
+  lt_fcat[] = mt_fcat[].
+  " @1 получение определения типа данных и присвоение динамической переменной
+  ASSIGN ir_data->* TO <fs_data>.
+  " создаем тип данных, как строку сформированной таблицы
+  CREATE DATA wa_data LIKE LINE OF <fs_data>.
+  " @1 получение определения типа данных и присвоение динамической переменной
+  ASSIGN wa_data->* TO <fs_lined>.
+
+  " по field catalog получеам имена полей
+  LOOP AT lt_fcat INTO wa_fcat WHERE tech EQ abap_false.
+    " номер столбца
+    ADD 1 TO lv_position.
+    " готовим заголовок таблицы
+    append_itab(
+      iv_num_row     = 1
+      iv_num_column  = lv_position
+      iv_fieldname   = wa_fcat-fieldname
+      iv_fieldvalue  = wa_fcat-scrtext_l
+    ).
+    " номер строки
+    lv_num_row = 1.
+    LOOP AT <fs_data> INTO <fs_lined>.
+      ASSIGN COMPONENT wa_fcat-fieldname OF STRUCTURE <fs_lined> TO <fs_field>.
+
+      IF sy-subrc EQ 0.
+        CLEAR lv_value.
+        lv_value = <fs_field>.
+        " если иконка, меняем пиктограмму на текст
+        IF wa_fcat-icon EQ abap_true.
+          change_value(
+            EXPORTING
+              iv_scrtext = wa_fcat-scrtext_l
+            CHANGING
+              cv_value   = lv_value
+          ).
+        ENDIF.
+
+        ADD 1 TO lv_num_row.
+        " готовим содержимое таблицы
+        append_itab(
+          iv_num_row     = lv_num_row
+          iv_num_column  = lv_position
+          iv_fieldname   = wa_fcat-fieldname
+          iv_fieldvalue  = lv_value
+        ).
+      ENDIF.
+    ENDLOOP.
+  ENDLOOP.
+
+  SORT mt_outtab BY var_num var_name ASCENDING.
+
+  et_outtab = mt_outtab.
+  UNASSIGN: <fs_data>, <fs_lined>, <fs_field>.
+endmethod.
+method FREE_OLE.
+  DATA lv_retcode TYPE soi_ret_string.
+  " удаление всей коллекции таблиц
+  mo_ref_table_collection->remove_all_tables(
+    IMPORTING
+      error    = mo_error
+      retcode  = lv_retcode
+  ).
+  " освобождение объектов
+  FREE: me->mo_container
+      , me->mo_control
+      , me->mo_document
+      , me->mo_error
+      , me->mo_handle
+      , me->mo_ref_table_collection
+      , me->mt_fcat
+      , me->mo_excel
+      .
+endmethod.
+method GET_FIELDCAT.
+  DATA: lo_columns   TYPE REF TO cl_salv_columns_table
+   , lo_aggregations TYPE REF TO cl_salv_aggregations
+   .
+
+   IF io_alv IS INITIAL.
+     RAISE not_got_alv.
+   ENDIF.
+
+   " получение fieldcat
+   lo_columns      = io_alv->get_columns( ).
+   lo_aggregations = io_alv->get_aggregations( ).
+
+   mt_fcat = cl_salv_controller_metadata=>get_lvc_fieldcatalog(
+     r_columns      = lo_columns
+     r_aggregations = lo_aggregations
+   ).
+
+   IF mt_fcat[] IS INITIAL.
+     RAISE not_got_fcat.
+   ENDIF.
+endmethod.
+method MACROS.
+  IF mo_document IS INITIAL.
+    RAISE doc_not_opened.
+  ENDIF.
+  IF iv_name IS INITIAL.
+    RAISE name_is_initial.
+  ENDIF.
+  " выполнение макроса созданного в файле Excel
+  mo_document->execute_macro(
+    EXPORTING
+      macro_string = iv_name
+      param1       = is_param-p01
+      param2       = is_param-p02
+      param3       = is_param-p03
+      param4       = is_param-p04
+      param5       = is_param-p05
+      param6       = is_param-p06
+      param7       = is_param-p07
+      param8       = is_param-p08
+      param9       = is_param-p09
+      param10      = is_param-p10
+      param11      = is_param-p11
+      param12      = is_param-p12
+      param_count  = iv_count
+  ).
+endmethod.
+method OPENXLS.
+  DATA: lo_instance   TYPE REF TO cl_bds_document_set,
+        lt_uris       TYPE sbdst_uri,
+        ls_uris       LIKE LINE OF lt_uris,
+        lt_signature  TYPE sbdst_signature,
+        lt_components TYPE sbdst_components,
+        ls_components LIKE LINE OF lt_components.
+
+  DATA: lo_excelobj TYPE cntl_handle.
+
+  CREATE OBJECT lo_instance.
+
+  lo_instance->get_with_url(
+    EXPORTING
+      classname       = iv_classname
+      classtype       = iv_classtype
+      object_key      = iv_objectkey
+    CHANGING
+      uris            = lt_uris
+      signature       = lt_signature
+      components      = lt_components
+    EXCEPTIONS
+      nothing_found   = 1
+      error_kpro      = 2
+      internal_error  = 3
+      parameter_error = 4
+      not_authorized  = 5
+      not_allowed     = 6
+      OTHERS          = 7
+  ).
+
+  IF sy-subrc <> 0.
+    RAISE pattern_not_found.
+  ENDIF.
+
+  SORT lt_uris       BY doc_count DESCENDING.
+  SORT lt_components BY doc_count DESCENDING.
+  IF lt_uris[] IS INITIAL.
+    RAISE pattern_not_found.
+  ELSE.
+    READ TABLE lt_components INTO ls_components WITH KEY comp_id   = iv_filename.
+    READ TABLE lt_uris       INTO ls_uris       WITH KEY doc_count = ls_components-doc_count.
+  ENDIF.
+
+  IF mo_container IS INITIAL.
+    CREATE OBJECT mo_container
+      EXPORTING
+        container_name              = iv_conname
+      EXCEPTIONS
+        cntl_error                  = 1
+        cntl_system_error           = 2
+        create_error                = 3
+        lifetime_error              = 4
+        lifetime_dynpro_dynpro_link = 5
+        OTHERS                      = 6.
+    IF sy-subrc <> 0.
+      RAISE create_error.
+    ENDIF.
+
+    "Creates a Container Control Instance
+    c_oi_container_control_creator=>get_container_control(
+      IMPORTING
+        control = mo_control
+    ).
+
+    "Creates and Initializes the Control
+    mo_control->init_control(
+      EXPORTING
+        r3_application_name  = iv_objectkey
+        parent               = mo_container
+        inplace_enabled      = iv_inplace
+        no_flush             = ' '
+      EXCEPTIONS
+        javabeannotsupported = 1
+    ).
+
+    IF sy-subrc <> 0.
+      RAISE create_error.
+    ENDIF.
+
+*  Объект коллекции таблиц
+    mo_control->get_table_collection(
+      EXPORTING
+        no_flush         = ' '
+      IMPORTING
+        table_collection = mo_ref_table_collection
+    ).
+  ENDIF.
+
+  IF ls_uris IS NOT INITIAL.
+    mo_control->get_document_proxy(
+      EXPORTING
+        document_type  = soi_doctype_excel_sheet
+      IMPORTING
+        document_proxy = mo_document
+        error          = mo_error
+    ).
+
+    APPEND mo_error TO mt_error.
+
+    mo_document->open_document(
+      EXPORTING
+        open_inplace = iv_inplace
+        document_url = ls_uris-uri
+      IMPORTING
+        error        = mo_error
+    ).
+    APPEND mo_error TO mt_error.
+
+    mo_document->get_document_handle(
+      EXPORTING
+        no_flush = 'X'
+      IMPORTING
+        handle   = lo_excelobj
+    ).
+    mo_excel  = lo_excelobj-obj.
+
+    IF lo_excelobj-obj IS INITIAL.
+      "MSG: При открытии Excel возникли ошибки. Закройте все файлы Excel и повторите
+      MESSAGE e029(zalr_bc).
+    ENDIF.
+
+    mo_document->get_spreadsheet_interface(
+      IMPORTING
+        sheet_interface = mo_handle
+    ).
+  ENDIF.
+endmethod.
+method APPEND_ITAB.
+  DATA wa_outtab   LIKE LINE OF mt_outtab.
+
+  wa_outtab-var_num   = iv_num_row.
+  wa_outtab-var_name  = iv_num_column.
+  wa_outtab-find_text = iv_fieldname.
+  wa_outtab-value     = iv_fieldvalue.
+  APPEND wa_outtab TO mt_outtab.
+endmethod.
+method CHANGE_VALUE.
+  CASE cv_value.
+    " зеленую иконку заменяет на текст Ориг
+    WHEN icon_green_light OR icon_closed_folder_uptodate.
+      cv_value = 'Ориг.'.
+    " красную иконку заменяем на тескт Копии
+    WHEN icon_red_light OR icon_closed_folder_orphaned.
+      cv_value = 'Копии'.
+    " желтую иконку заменяем на тескт Частич
+    WHEN icon_closed_folder_outdate.
+      cv_value = 'Частич.'.
+    " иконку XML документа меняем на наименование поля
+    WHEN icon_xml_doc.
+      cv_value = iv_scrtext.
+    " иконки прикрепленного оригинала и галочку меняет на Х
+    WHEN icon_attachment OR icon_checked.
+      cv_value = 'X'.
+  ENDCASE.
+endmethod.
+ENDCLASS.
