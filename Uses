@@ -1,0 +1,85 @@
+DATA: lo_excel TYPE REF TO zalr_cl_itab_to_excel
+      , ls_param  TYPE lo_excel->t_param
+      , lt_outtab TYPE TABLE OF lo_excel->t_outtab
+      .
+
+  IF lo_excel IS NOT BOUND.
+    CREATE OBJECT lo_excel.
+  ENDIF.
+
+  CHECK lo_excel IS BOUND.
+  " открываем книгу Excel
+  lo_excel->openxls(
+    EXPORTING
+      iv_conname   = 'CONTAINER_EXCEL'
+      iv_inplace   = ' '
+      iv_classname = 'ZALR_TEMPLATES'
+      iv_classtype = 'OT'
+      iv_objectkey = 'ZALR_CONREP'
+      iv_filename  = 'ZALR_CONREP.xlsm'
+    EXCEPTIONS
+      OTHERS = 5
+  ).
+
+  IF sy-subrc NE 0.
+      MESSAGE 'Excel документ не получен' TYPE 'E' DISPLAY LIKE 'S'.
+  ENDIF.
+  " получем каталог полей для заголовка таблицы в книге Excel
+  lo_excel->get_fieldcat(
+    EXPORTING
+      io_alv = go_alv
+    EXCEPTIONS
+      not_got_fcat = 1
+      not_got_alv  = 2
+      OTHERS       = 3
+  ).
+
+  IF sy-subrc EQ 1.
+    MESSAGE 'Не получен каталог полей' TYPE 'E' DISPLAY LIKE 'S'.
+  ENDIF.
+
+  IF sy-subrc EQ 2.
+    MESSAGE 'Не получен объет ALV' TYPE 'E' DISPLAY LIKE 'S'.
+  ENDIF.
+
+  IF sy-subrc NE 0.
+    MESSAGE 'Ошибка при попытку получить каталог полей' TYPE 'E' DISPLAY LIKE 'S'.
+  ENDIF.
+  " заполняем внутреннию таблицу
+  lo_excel->fill_outtab(
+    EXPORTING
+      ir_data   = gr_data
+    IMPORTING
+      et_outtab = lt_outtab
+    EXCEPTIONS
+      not_got_reference_on_data = 1
+  ).
+
+  IF sy-subrc EQ 1.
+    MESSAGE 'Не получены данные для экспорта в Excel' TYPE 'E' DISPLAY LIKE 'S'.
+  ENDIF.
+  " добавляем внутреннию таблицу в коллекцию
+  " для получения доступа к ней в Excel
+  lo_excel->add_table_to_collection(
+    CHANGING
+      ct_outtab = lt_outtab
+  ).
+  " указываем и выполняем макрос
+  lo_excel->macros(
+    EXPORTING
+      iv_name  = 'Module1.Workbook_active_'
+      is_param = ls_param
+    EXCEPTIONS
+      doc_not_opened  = 1
+      name_is_initial = 2
+  ).
+
+  IF sy-subrc EQ 1.
+    MESSAGE 'Не удалось открыть документ' TYPE 'E' DISPLAY LIKE 'S'.
+  ENDIF.
+
+  IF sy-subrc EQ 2.
+    MESSAGE 'Не задан маркос' TYPE 'E' DISPLAY LIKE 'S'.
+  ENDIF.
+  " освобождение объектов
+  lo_excel->free_ole( ).
