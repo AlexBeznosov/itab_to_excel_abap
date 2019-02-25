@@ -1,0 +1,96 @@
+class Z_CL_ITAB_TO_EXCEL definition
+  public
+  final
+  create public .
+
+public section.
+
+  types:
+    begin of t_param,
+        p01 type string,
+        p02 type string,
+        p03 type string,
+        p04 type string,
+        p05 type string,
+        p06 type string,
+        p07 type string,
+        p08 type string,
+        p09 type string,
+        p10 type string,
+        p11 type string,
+        p12 type string,
+      end of t_param .
+  types:
+    begin of t_outtab,
+       var_num   TYPE i,
+       var_name  TYPE i,
+       find_text TYPE char50,
+       value     TYPE char255,
+    end of t_outtab .
+
+  methods GET_FIELDCAT
+    importing
+      !IO_ALV type ref to CL_SALV_TABLE
+    exceptions
+      NOT_GOT_FCAT
+      NOT_GOT_ALV .
+  methods FILL_OUTTAB
+    importing
+      !IR_DATA type ref to DATA
+    exporting
+      value(ET_OUTTAB) type TABLE
+    exceptions
+      NOT_GOT_REFERENCE_ON_DATA .
+  methods FREE_OLE .
+  type-pools SBDST .
+  methods OPENXLS
+    importing
+      !IV_CONNAME type CHAR100
+      !IV_INPLACE type C
+      !IV_CLASSNAME type SBDST_CLASSNAME
+      !IV_CLASSTYPE type SBDST_CLASSTYPE
+      !IV_OBJECTKEY type SBDST_OBJECT_KEY
+      !IV_FILENAME type CHAR255
+    exceptions
+      PATTERN_NOT_FOUND
+      CREATE_ERROR .
+  methods MACROS
+    importing
+      !IV_NAME type C
+      !IS_PARAM type T_PARAM
+      !IV_COUNT type I default 0
+    exceptions
+      DOC_NOT_OPENED
+      NAME_IS_INITIAL .
+  methods ADD_TABLE_TO_COLLECTION
+    changing
+      !CT_OUTTAB type TABLE .
+      
+ private section.
+
+  data MT_FCAT type LVC_T_FCAT .
+  data MO_CONTROL type ref to I_OI_CONTAINER_CONTROL .
+  data MO_CONTAINER type ref to CL_GUI_CUSTOM_CONTAINER .
+  data MO_DOCUMENT type ref to I_OI_DOCUMENT_PROXY .
+  type-pools OLE2 .
+  data MO_EXCEL type OLE2_OBJECT .
+  data MO_REF_TABLE_COLLECTION type ref to I_OI_TABLE_COLLECTION .
+  data MO_ERROR type ref to I_OI_ERROR .
+  data MO_HANDLE type ref to I_OI_SPREADSHEET .
+  data:
+    mt_error type table of ref to i_oi_error .
+  data:
+    mt_outtab type table of t_outtab .
+
+  methods APPEND_ITAB
+    importing
+      !IV_NUM_ROW type I
+      !IV_NUM_COLUMN type I
+      !IV_FIELDNAME type LVC_FNAME
+      !IV_FIELDVALUE type ANY .
+  methods CHANGE_VALUE
+    importing
+      !IV_SCRTEXT type SCRTEXT_L
+    changing
+      !CV_VALUE type ANY .
+ENDCLASS.
